@@ -50,14 +50,28 @@ color[] stageColor = { color(255,255,255), color(255,0,0), color(50,255,50), col
 String[] stageName = { "", "Wake", "REM", "Light", "Deep" };
 
 
-double alarmInNHours = 4.3;
+int alarmHour;
+int alarmMinute;
+
 
 LocalDateTime alarmTime;
 LocalDateTime lastSleepStageTime;
 
 void setup() {
 if (P3D == OPENGL) println("I am run on Processing 2.0");
-  alarmTime = LocalDateTime.now().plusHours((long) alarmInNHours);
+  if (args != null && args.length > 1) {
+    alarmHour = int(args[1]);
+    alarmMinute = int(args[2]);
+    println("Received alarm time: " + nf(alarmHour, 2) + ":" + nf(alarmMinute, 2));
+  } else {
+    println("No alarm time received.");
+  }
+
+  alarmTime = LocalDateTime.now().withHour(alarmHour).withMinute(alarmMinute).withSecond(0).withNano(0);
+  if (alarmTime.isBefore(LocalDateTime.now())) {
+    alarmTime = alarmTime.plusDays(1);
+  }
+  alarmTime = alarmTime.atZone(ZoneOffset.systemDefault()).withZoneSameInstant(ZoneOffset.UTC).toLocalDateTime();
   println("alarmTime: " + alarmTime);
  
   size(200,150);
@@ -145,6 +159,9 @@ public void zeoSleepStateEvent(ZeoStream z) {
     // change of sleep stage
       Date date = new Date(z.slice.timestamp * 1000L); // Convert seconds to milliseconds
       SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+      if (lastSleepStageTime == null) {
+          lastSleepStageTime = LocalDateTime.ofEpochSecond(z.slice.timestamp, 0, ZoneOffset.UTC);
+      }
       long durationInSeconds = java.time.Duration.between(lastSleepStageTime, LocalDateTime.ofEpochSecond(z.slice.timestamp, 0, ZoneOffset.UTC)).getSeconds();
       println("Sleep stage changed from " + stageName[sleepStage] + " to " + stageName[z.sleepState] + ", Timestamp: " + sdf.format(date) + ", current sleep stage: " + z.sleepState + ", duration of last sleep stage: " + durationInSeconds + " seconds, every 10min the cooldown is: " + cooldown + ", isMostlyREM: " + isMostlyREM() + ", isRecentREM: " + isRecentREM());
   }
@@ -195,7 +212,7 @@ public void onRemFinished(ZeoSlice slice) {
     println("Sleep, more cycles can be done, diffInHours: " + diffInHours);
     return;
   }
-  if (diff < 0.3) {
+  if (diffInHours < 0.75) {
     println("You finished rem and your alarm is in 20min, waking up now");
     REMevent();
     return;
@@ -217,7 +234,7 @@ boolean isMostlyREM() {
 
 // Add this helper method to check if the last 10% of the queue is not mostly REM
 boolean isRecentREM() {
-  int recentCount = sleepStageHistory.size() / 10;
+  int recentCount = sleepStageHistory.size() / 4;
   int remCount = 0;
   int index = 0;
   for (int stage : sleepStageHistory) {
