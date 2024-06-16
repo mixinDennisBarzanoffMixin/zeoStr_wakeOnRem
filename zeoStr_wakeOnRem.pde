@@ -213,7 +213,7 @@ public void onRemFinished(ZeoSlice slice) {
     return;
   }
   if (diffInHours < 0.75) {
-    println("You finished rem and your alarm is in 20min, waking up now");
+    println("You finished rem and your alarm is in less than 45 minutes, waking up now");
     REMevent();
     return;
   }
