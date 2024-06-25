@@ -57,8 +57,14 @@ int alarmMinute;
 LocalDateTime alarmTime;
 LocalDateTime lastSleepStageTime;
 
+LocalDateTime programStartTime;
+
+
 void setup() {
-if (P3D == OPENGL) println("I am run on Processing 2.0");
+  programStartTime = LocalDateTime.now();
+  println("Program start time: " + programStartTime.toString());
+
+  if (P3D == OPENGL) println("I am run on Processing 2.0");
   if (args != null && args.length > 1) {
     alarmHour = int(args[1]);
     alarmMinute = int(args[2]);
@@ -73,6 +79,15 @@ if (P3D == OPENGL) println("I am run on Processing 2.0");
   }
   alarmTime = alarmTime.atZone(ZoneOffset.systemDefault()).withZoneSameInstant(ZoneOffset.UTC).toLocalDateTime();
   println("alarmTime: " + alarmTime);
+
+  // Adjust alarm time if it's more than 12 hours away
+  // 12:30 = 0:30 this way
+  long hoursUntilAlarm = java.time.Duration.between(programStartTime, alarmTime).toHours();
+  println("Hours until alarm: " + hoursUntilAlarm);
+  if (hoursUntilAlarm > 12) {
+    alarmTime = alarmTime.minusHours(12);
+  } 
+  println("Adjusted alarmTime: " + alarmTime);
  
   size(200,150);
   
@@ -160,7 +175,9 @@ public void zeoSleepStateEvent(ZeoStream z) {
       Date date = new Date(z.slice.timestamp * 1000L); // Convert seconds to milliseconds
       SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
       if (lastSleepStageTime == null) {
-          lastSleepStageTime = LocalDateTime.ofEpochSecond(z.slice.timestamp, 0, ZoneOffset.UTC);
+        // using now time instead of the last sleep stage time, they are the same more or less
+        // only this is more reliable if the actual time is set in some weird am/pm way
+          lastSleepStageTime = LocalDateTime.now();
       }
       long durationInSeconds = java.time.Duration.between(lastSleepStageTime, LocalDateTime.ofEpochSecond(z.slice.timestamp, 0, ZoneOffset.UTC)).getSeconds();
       println("Sleep stage changed from " + stageName[sleepStage] + " to " + stageName[z.sleepState] + ", Timestamp: " + sdf.format(date) + ", current sleep stage: " + z.sleepState + ", duration of last sleep stage: " + durationInSeconds + " seconds, every 10min the cooldown is: " + cooldown + ", isMostlyREM: " + isMostlyREM() + ", isRecentREM: " + isRecentREM());
@@ -196,6 +213,13 @@ boolean isRecentDisconnected() {
 
 
 public void onRemFinished(ZeoSlice slice) {
+  LocalDateTime currentTime = LocalDateTime.ofEpochSecond(slice.timestamp, 0, ZoneOffset.UTC);
+  
+  // Check if the program was started less than 1 hour ago
+  if (java.time.Duration.between(programStartTime, currentTime).toHours() < 1) {
+    println("Program started less than 1 hour ago, waiting 1h before applying alarm logic.");
+    return;
+  }
   if (LocalDateTime.ofEpochSecond(slice.timestamp, 0, ZoneOffset.UTC).isAfter(alarmTime)) {
     SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
     println("alarmTime passed! and just finished REM cycle at " + sdf.format(new Date(slice.timestamp * 1000L)));
