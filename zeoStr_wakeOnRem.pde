@@ -29,7 +29,7 @@ int historyDuration = 20; // 20 slices of 30 seconds each to make 10 minutes
 int remDelay = 5;
 
 // duration of sound to play, in seconds
-int playDuration = 180;
+int playDuration = 180*10;
 
 // name of mp3 soundfile, placed in data folder
 String soundFile = "BM207.mp3";  
@@ -58,6 +58,9 @@ LocalDateTime alarmTime;
 LocalDateTime lastSleepStageTime;
 
 LocalDateTime programStartTime;
+
+// Add this to the global variables
+int remWaitTime = 5; // Wait time in minutes after REM cycle finishes
 
 
 void setup() {
@@ -187,7 +190,10 @@ public void zeoSleepStateEvent(ZeoStream z) {
   }
     // Check if we just finished a REM cycle
   if (isMostlyREM() && !isRecentREM() && cooldown == 0 && !isRecentDisconnected()) {
+    println("Finished REM cycle, sleeping for " + remWaitTime + " minutes before alarm.");
     logFinishedREMCycle();
+    delay(remWaitTime * 60 * 1000); // sleep for remWaitTime minutes
+    print("Sleeping for " + remWaitTime + " minutes before next check");
     onRemFinished(z.slice);
     cooldown = 40;  // wait 20 minutes (20 minutes / 0.5 minutes per cooldown value)
   }
@@ -309,3 +315,5 @@ void stop() {
 String getTime() {
   return hour()+":"+minute();
 }
+
+
