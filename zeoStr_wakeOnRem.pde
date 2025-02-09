@@ -18,6 +18,7 @@ import java.util.LinkedList;
 import java.util.Queue;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.time.ZoneId;
 
 
 // Add this to the global variables
@@ -60,8 +61,10 @@ LocalDateTime lastSleepStageTime;
 LocalDateTime programStartTime;
 
 // Add this to the global variables
-int remWaitTime = 5; // Wait time in minutes after REM cycle finishes
+int remWaitTime = 0; // Wait time in minutes after REM cycle finishes
 
+// Add this to the global variables
+LocalDateTime predictedNextRemMaximumEnd;
 
 void setup() {
   programStartTime = LocalDateTime.now();
@@ -175,25 +178,32 @@ public void zeoSleepStateEvent(ZeoStream z) {
 
   if (sleepStage != z.sleepState) {
     // change of sleep stage
-      Date date = new Date(z.slice.timestamp * 1000L); // Convert seconds to milliseconds
-      SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-      if (lastSleepStageTime == null) {
-        // using now time instead of the last sleep stage time, they are the same more or less
-        // only this is more reliable if the actual time is set in some weird am/pm way
-          lastSleepStageTime = LocalDateTime.now();
-      }
-      long durationInSeconds = java.time.Duration.between(lastSleepStageTime, LocalDateTime.ofEpochSecond(z.slice.timestamp, 0, ZoneOffset.UTC)).getSeconds();
-      println("Sleep stage changed from " + stageName[sleepStage] + " to " + stageName[z.sleepState] + ", Timestamp: " + sdf.format(date) + ", current sleep stage: " + z.sleepState + ", duration of last sleep stage: " + durationInSeconds + " seconds, every 10min the cooldown is: " + cooldown + ", isMostlyREM: " + isMostlyREM() + ", isRecentREM: " + isRecentREM());
+    Date date = new Date(z.slice.timestamp * 1000L); // Convert seconds to milliseconds
+    SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+    if (lastSleepStageTime == null) {
+      // using now time instead of the last sleep stage time, they are the same more or less
+      // only this is more reliable if the actual time is set in some weird am/pm way
+      lastSleepStageTime = LocalDateTime.now();
+    }
+    long durationInSeconds = java.time.Duration.between(lastSleepStageTime, LocalDateTime.ofEpochSecond(z.slice.timestamp, 0, ZoneOffset.UTC)).getSeconds();
+    println("Sleep stage changed from " + stageName[sleepStage] + " to " + stageName[z.sleepState] + ", Timestamp: " + sdf.format(date) + ", current sleep stage: " + z.sleepState + ", duration of last sleep stage: " + durationInSeconds + " seconds, every 10min the cooldown is: " + cooldown + ", isMostlyREM: " + isMostlyREM() + ", isRecentREM: " + isRecentREM());
   }
+
   if (isRecentDisconnected()) {
     println("Recent disconnected, skipping REM finished event");
   }
-    // Check if we just finished a REM cycle
-  if (isMostlyREM() && !isRecentREM() && cooldown == 0 && !isRecentDisconnected()) {
-    println("Finished REM cycle, sleeping for " + remWaitTime + " minutes before alarm.");
+
+  // Check if we just finished a REM cycle or if we are after the predicted next REM cycle maximum end
+  if ((isMostlyREM() && !isRecentREM() && cooldown == 0 && !isRecentDisconnected()) || 
+      (predictedNextRemMaximumEnd != null && LocalDateTime.now().isAfter(predictedNextRemMaximumEnd))) {
+    if (predictedNextRemMaximumEnd != null && LocalDateTime.now().isAfter(predictedNextRemMaximumEnd)) {
+      println("REM cycle after predicted next REM cycle maximum end, sleeping for " + remWaitTime + " minutes before alarm.");
+    } else {
+      println("Just finished a REM cycle, sleeping for " + remWaitTime + " minutes before next check");
+    }
     logFinishedREMCycle();
     delay(remWaitTime * 60 * 1000); // sleep for remWaitTime minutes
-    print("Sleeping for " + remWaitTime + " minutes before next check");
+    println("Slept for " + remWaitTime + " minutes before next check");
     onRemFinished(z.slice);
     cooldown = 40;  // wait 20 minutes (20 minutes / 0.5 minutes per cooldown value)
   }
@@ -219,20 +229,27 @@ boolean isRecentDisconnected() {
 
 
 public void onRemFinished(ZeoSlice slice) {
-  LocalDateTime currentTime = LocalDateTime.ofEpochSecond(slice.timestamp, 0, ZoneOffset.UTC);
-  
+  LocalDateTime currentTime = LocalDateTime.now();
   // Check if the program was started less than 1 hour ago
   if (java.time.Duration.between(programStartTime, currentTime).toHours() < 1) {
     println("Program started less than 1 hour ago, waiting 1h before applying alarm logic.");
     return;
   }
-  if (LocalDateTime.ofEpochSecond(slice.timestamp, 0, ZoneOffset.UTC).isAfter(alarmTime)) {
-    SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+  SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+  println("Program start time: " + sdf.format(Date.from(programStartTime.atZone(ZoneId.systemDefault()).toInstant())));
+  println("Current time: " + sdf.format(Date.from(currentTime.atZone(ZoneId.systemDefault()).toInstant())));
+  
+  // Predict the next REM cycle maximum end time
+  predictedNextRemMaximumEnd = currentTime.plusMinutes(96); // 1.6 hours (96 minutes)
+  println("Predicted next REM cycle maximum end at: " + predictedNextRemMaximumEnd);
+
+  if (currentTime.isAfter(alarmTime)) {
     println("alarmTime passed! and just finished REM cycle at " + sdf.format(new Date(slice.timestamp * 1000L)));
     // play sound
     REMevent();
     return;
   }
+  
   final double diff = java.time.temporal.ChronoUnit.MILLIS.between(
       java.time.Instant.ofEpochSecond(slice.timestamp).atZone(java.time.ZoneOffset.UTC).toLocalDateTime(), 
       alarmTime
